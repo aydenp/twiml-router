@@ -1,10 +1,11 @@
 import express, { Request } from "express";
 import twilio from "twilio";
+import { RequestValidatorOptions } from "twilio/lib/webhooks/webhooks";
+import bodyParser from "body-parser";
+import FlakeId from "flakeid";
 import VoiceResponse from "twilio/lib/twiml/VoiceResponse";
 import MessagingResponse from "twilio/lib/twiml/MessagingResponse";
 import FaxResponse from "twilio/lib/twiml/FaxResponse";
-import bodyParser from "body-parser";
-import FlakeId from "flakeid";
 
 export class TwiMLServer {
     private app = express();
@@ -18,8 +19,9 @@ export class TwiMLServer {
         this.app.use(bodyParser.urlencoded({ extended: false }));
 
         // Validate signature
-        if (process.env.NODE_ENV === "production" && process.env.TWILIO_AUTH_TOKEN) {
-            this.app.use(twilio.webhook());
+        if (process.env.NODE_ENV === "production" && (process.env.TWILIO_AUTH_TOKEN)) {
+            if (options.requestValidatorOptions) this.app.use(twilio.webhook(options.requestValidatorOptions));
+            else this.app.use(twilio.webhook());
         } else {
             console.warn("WARNING! Webhooks from the Twilio API are not being validated. This is okay for development, but if you want to keep things in your TwiML, such as destination phone numbers secret, run your app in production mode with TWILIO_AUTH_TOKEN set.");
         }
@@ -109,6 +111,7 @@ class TwiMLRouter<T extends AnyResponse> {
 
 export interface TwiMLServerOptions {
     prefixRoutesWithType: boolean;
+    requestValidatorOptions?: RequestValidatorOptions
 }
 
 export { Request, VoiceResponse, MessagingResponse, FaxResponse };
