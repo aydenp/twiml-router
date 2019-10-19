@@ -5,22 +5,25 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const twilio_1 = __importDefault(require("twilio"));
+const body_parser_1 = __importDefault(require("body-parser"));
+const flakeid_1 = __importDefault(require("flakeid"));
 const VoiceResponse_1 = __importDefault(require("twilio/lib/twiml/VoiceResponse"));
 exports.VoiceResponse = VoiceResponse_1.default;
 const MessagingResponse_1 = __importDefault(require("twilio/lib/twiml/MessagingResponse"));
 exports.MessagingResponse = MessagingResponse_1.default;
 const FaxResponse_1 = __importDefault(require("twilio/lib/twiml/FaxResponse"));
 exports.FaxResponse = FaxResponse_1.default;
-const body_parser_1 = __importDefault(require("body-parser"));
-const flakeid_1 = __importDefault(require("flakeid"));
 class TwiMLServer {
     constructor(options = { prefixRoutesWithType: true }) {
         this.app = express_1.default();
         // Parse body
         this.app.use(body_parser_1.default.urlencoded({ extended: false }));
         // Validate signature
-        if (process.env.NODE_ENV === "production" && process.env.TWILIO_AUTH_TOKEN) {
-            this.app.use(twilio_1.default.webhook());
+        if (process.env.NODE_ENV === "production" && (process.env.TWILIO_AUTH_TOKEN)) {
+            if (options.requestValidatorOptions)
+                this.app.use(twilio_1.default.webhook(options.requestValidatorOptions));
+            else
+                this.app.use(twilio_1.default.webhook());
         }
         else {
             console.warn("WARNING! Webhooks from the Twilio API are not being validated. This is okay for development, but if you want to keep things in your TwiML, such as destination phone numbers secret, run your app in production mode with TWILIO_AUTH_TOKEN set.");

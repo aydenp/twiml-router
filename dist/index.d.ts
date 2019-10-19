@@ -1,4 +1,5 @@
 import express, { Request } from "express";
+import { RequestValidatorOptions } from "twilio/lib/webhooks/webhooks";
 import VoiceResponse from "twilio/lib/twiml/VoiceResponse";
 import MessagingResponse from "twilio/lib/twiml/MessagingResponse";
 import FaxResponse from "twilio/lib/twiml/FaxResponse";
@@ -26,6 +27,7 @@ declare class TwiMLRouter<T extends AnyResponse> {
 }
 export interface TwiMLServerOptions {
     prefixRoutesWithType: boolean;
+    requestValidatorOptions?: RequestValidatorOptions;
 }
 export { Request, VoiceResponse, MessagingResponse, FaxResponse };
 declare type AnyResponse = VoiceResponse | MessagingResponse | FaxResponse;
