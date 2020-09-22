@@ -1,6 +1,6 @@
 {
   "name": "twiml-router",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Reusable Express server implementation for Twilio TwiML requests, providing request validation and automatic response generation.",
   "main": "dist/index.js",
   "scripts": {

@@ -1,4 +1,4 @@
-import express, { Request } from "express";
+import express, { Request, RequestHandler } from "express";
 import twilio from "twilio";
 import { RequestValidatorOptions } from "twilio/lib/webhooks/webhooks";
 import bodyParser from "body-parser";
@@ -53,53 +53,80 @@ class TwiMLRouter<T extends AnyResponse> {
             }
         }
         // Register nested action handlers
-        this.register(`/_generated/:id`, (req, res) => this.generatedActionRouteHandler(req, res));
+        this.register(`/_generated/action/:id`, async (req, res) => {
+            const route = this.consumeGeneratedRoute(req.params.id, "generatedActionRoutes") as GeneratedRoute<CallHandler<T>>;
+            // Call the handler!
+            return await route.handler(req, res);
+        });
+        this._register(`/_generated/callback/:id`, async (req, res) => {
+            const route = this.consumeGeneratedRoute(req.params.id, "generatedCallbackRoutes") as GeneratedRoute<CallbackHandler>;
+            // Call the handler!
+            await route.handler(req);
+            res.sendStatus(200);
+        });
     }
 
     // MARK: - Route Registration
 
     public register(path: string, handler: CallHandler<T>) {
+        this._register(path, async (req, res) => {
+            // Ensure we have the required fields
+            const bodyKeys = Object.keys(req.body);
+            if (!["ApiVersion", "From", "To", "AccountSid"].every((k) => bodyKeys.includes(k))) return res.status(400).send("Your request did not provide all of the required body fields.");
+
+            // Create TwiML response (while we create a voice response, the only difference is the types)
+            const twiml = <T>this.responseFactory();
+
+            // Pass off to handler!
+            await handler(req, twiml);
+
+            // Finished processing, send response.
+            return res.contentType("xml").send(twiml.toString());
+        });
+    }
+
+    private _register(path: string, handler: RequestHandler) {
         this.app.post(this.actionPath(path), async (req, res, next) => {
             try {
-                // Ensure we have the required fields
-                const bodyKeys = Object.keys(req.body);
-                if (!["ApiVersion", "From", "To", "AccountSid"].every((k) => bodyKeys.includes(k))) return res.status(400).send("Your request did not provide all of the required body fields.");
-
-                // Create TwiML response (while we create a voice response, the only difference is the types)
-                const twiml = <T>this.responseFactory();
-
-                // Pass off to handler!
-                await handler(req, twiml);
-
-                // Finished processing, send response.
-                res.contentType("xml").send(twiml.toString())
+                handler(req, res, next);
             } catch (e) {
                 return next(e);
             }
         });
     }
 
-    // MARK: Nested Action Generation
+    // MARK: Nested Route Generation
 
-    private generatedActionRoutes: { [key: string]: { handler: CallHandler<T>, singleUse: boolean } } = {};
+    private generatedActionRoutes: { [key: string]: GeneratedRoute<CallHandler<T>> } = {};
+    private generatedCallbackRoutes: { [key: string]: GeneratedRoute<CallbackHandler> } = {};
 
-    public action(handler: CallHandler<T>, singleUse: boolean = true) {
+    private consumeGeneratedRoute(id: string, objectName: string): GeneratedRoute<any> {
+        // Find the route this refers to
+        const route = this[objectName][id];
+        if (!route) throw new Error("This generated route is no longer available. Check to make sure that it isn't set to single use if that isn't appropriate.");
+        // Remove the info if this route was single use
+        if (route.singleUse) delete this[objectName][id];
+        return route;
+    }
+
+    private generateRoute<Handler>(handler: Handler, singleUse: boolean, objectName: string) {
         // Create a unique ID to identify this action by
         const id: string = this.flake.gen();
         // Save the route's information
-        this.generatedActionRoutes[id] = { handler, singleUse };
-        // Return a path to use as the action URL
-        return this.actionPath("_generated/" + id);
+        this[objectName][id] = { handler, singleUse };
+        return id;
     }
 
-    private async generatedActionRouteHandler(req: Request, res: T) {
-        // Find the route this refers to
-        const route = this.generatedActionRoutes[req.params.id];
-        if (!route) throw new Error("This generated route is no longer available. Cgeck to make sure that it isn't set to single use if that isn't appropriate.");
-        // Remove the info if this route was single use
-        if (route.singleUse) delete this.generatedActionRoutes[req.params.id];
-        // Call the handler!
-        return await route.handler(req, res);
+    public action(handler: CallHandler<T>, singleUse: boolean = true) {
+        const id = this.generateRoute(handler, singleUse, "generatedActionRoutes");
+        // Return a path to use as the action URL
+        return this.actionPath("_generated/action/" + id);
+    }
+
+    public callback(handler: CallbackHandler, singleUse: boolean = true) {
+        const id = this.generateRoute(handler, singleUse, "generatedCallbackRoutes");
+        // Return a path to use as the callback URL
+        return this.actionPath("_generated/callback/" + id);
     }
 
     // MARK: - Convenience
@@ -116,5 +143,7 @@ export interface TwiMLServerOptions {
 
 export { Request, VoiceResponse, MessagingResponse, FaxResponse };
 
+type GeneratedRoute<Handler> = { handler: Handler, singleUse: boolean };
 type AnyResponse = VoiceResponse | MessagingResponse | FaxResponse;
 type CallHandler<T> = (req: Request, res: T) => Promise<void> | void;
+type CallbackHandler = (req: Request) => Promise<void> | void;

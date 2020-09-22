@@ -20,9 +20,13 @@ declare class TwiMLRouter<T extends AnyResponse> {
     private responseFactory;
     constructor(app: express.Express, type: RequestType, options: TwiMLServerOptions);
     register(path: string, handler: CallHandler<T>): void;
+    private _register;
     private generatedActionRoutes;
+    private generatedCallbackRoutes;
+    private consumeGeneratedRoute;
+    private generateRoute;
     action(handler: CallHandler<T>, singleUse?: boolean): string;
-    private generatedActionRouteHandler;
+    callback(handler: CallbackHandler, singleUse?: boolean): string;
     actionPath(path: string): string;
 }
 export interface TwiMLServerOptions {
@@ -32,3 +36,4 @@ export interface TwiMLServerOptions {
 export { Request, VoiceResponse, MessagingResponse, FaxResponse };
 declare type AnyResponse = VoiceResponse | MessagingResponse | FaxResponse;
 declare type CallHandler<T> = (req: Request, res: T) => Promise<void> | void;
+declare type CallbackHandler = (req: Request) => Promise<void> | void;

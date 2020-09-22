@@ -44,8 +44,9 @@ class TwiMLRouter {
         this.type = type;
         this.options = options;
         this.flake = new flakeid_1.default();
-        // MARK: Nested Action Generation
+        // MARK: Nested Route Generation
         this.generatedActionRoutes = {};
+        this.generatedCallbackRoutes = {};
         // Create response factory
         this.responseFactory = () => {
             switch (type) {
@@ -55,46 +56,69 @@ class TwiMLRouter {
             }
         };
         // Register nested action handlers
-        this.register(`/_generated/:id`, (req, res) => this.generatedActionRouteHandler(req, res));
+        this.register(`/_generated/action/:id`, async (req, res) => {
+            const route = this.consumeGeneratedRoute(req.params.id, "generatedActionRoutes");
+            // Call the handler!
+            return await route.handler(req, res);
+        });
+        this._register(`/_generated/callback/:id`, async (req, res) => {
+            const route = this.consumeGeneratedRoute(req.params.id, "generatedCallbackRoutes");
+            // Call the handler!
+            await route.handler(req);
+            res.sendStatus(200);
+        });
     }
     // MARK: - Route Registration
     register(path, handler) {
+        this._register(path, async (req, res) => {
+            // Ensure we have the required fields
+            const bodyKeys = Object.keys(req.body);
+            if (!["ApiVersion", "From", "To", "AccountSid"].every((k) => bodyKeys.includes(k)))
+                return res.status(400).send("Your request did not provide all of the required body fields.");
+            // Create TwiML response (while we create a voice response, the only difference is the types)
+            const twiml = this.responseFactory();
+            // Pass off to handler!
+            await handler(req, twiml);
+            // Finished processing, send response.
+            return res.contentType("xml").send(twiml.toString());
+        });
+    }
+    _register(path, handler) {
         this.app.post(this.actionPath(path), async (req, res, next) => {
             try {
-                // Ensure we have the required fields
-                const bodyKeys = Object.keys(req.body);
-                if (!["ApiVersion", "From", "To", "AccountSid"].every((k) => bodyKeys.includes(k)))
-                    return res.status(400).send("Your request did not provide all of the required body fields.");
-                // Create TwiML response (while we create a voice response, the only difference is the types)
-                const twiml = this.responseFactory();
-                // Pass off to handler!
-                await handler(req, twiml);
-                // Finished processing, send response.
-                res.contentType("xml").send(twiml.toString());
+                handler(req, res, next);
             }
             catch (e) {
                 return next(e);
             }
         });
     }
-    action(handler, singleUse = true) {
+    consumeGeneratedRoute(id, objectName) {
+        // Find the route this refers to
+        const route = this[objectName][id];
+        if (!route)
+            throw new Error("This generated route is no longer available. Check to make sure that it isn't set to single use if that isn't appropriate.");
+        // Remove the info if this route was single use
+        if (route.singleUse)
+            delete this[objectName][id];
+        return route;
+    }
+    generateRoute(handler, singleUse, objectName) {
         // Create a unique ID to identify this action by
         const id = this.flake.gen();
         // Save the route's information
-        this.generatedActionRoutes[id] = { handler, singleUse };
-        // Return a path to use as the action URL
-        return this.actionPath("_generated/" + id);
+        this[objectName][id] = { handler, singleUse };
+        return id;
     }
-    async generatedActionRouteHandler(req, res) {
-        // Find the route this refers to
-        const route = this.generatedActionRoutes[req.params.id];
-        if (!route)
-            throw new Error("This generated route is no longer available. Cgeck to make sure that it isn't set to single use if that isn't appropriate.");
-        // Remove the info if this route was single use
-        if (route.singleUse)
-            delete this.generatedActionRoutes[req.params.id];
-        // Call the handler!
-        return await route.handler(req, res);
+    action(handler, singleUse = true) {
+        const id = this.generateRoute(handler, singleUse, "generatedActionRoutes");
+        // Return a path to use as the action URL
+        return this.actionPath("_generated/action/" + id);
+    }
+    callback(handler, singleUse = true) {
+        const id = this.generateRoute(handler, singleUse, "generatedCallbackRoutes");
+        // Return a path to use as the callback URL
+        return this.actionPath("_generated/callback/" + id);
     }
     // MARK: - Convenience
     actionPath(path) {
